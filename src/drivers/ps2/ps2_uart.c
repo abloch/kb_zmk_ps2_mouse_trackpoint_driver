@@ -654,9 +654,12 @@ void ps2_uart_read_process_received_byte(uint8_t byte) {
         // doesn't block the interrupt.
         // Will call ps2_uart_read_callback_work_handler
 #if IS_ENABLED(CONFIG_PS2_UART_DROP_ERROR_PACKETS)
+        // Only parity and overrun errors mean the byte is wrong or bytes were
+        // lost. A framing error alone (late stop bit) is frequent with the
+        // 14400 baud approximation and leaves the data bits intact.
         struct ps2_uart_cb_queue_item item = {
             .byte = byte,
-            .err = (err != 0),
+            .err = (err == UART_ERROR_PARITY || err == UART_ERROR_OVERRUN),
             .time_us = k_ticks_to_us_floor32(k_uptime_ticks()),
         };
         if (k_msgq_put(&data->cb_queue, &item, K_NO_WAIT) != 0) {
@@ -703,7 +706,7 @@ void ps2_uart_read_callback_work_handler(struct k_work *work) {
         }
         data->cb_prev_time_us = item.time_us;
 
-        // A parity or framing error makes the whole packet unreliable. Drop
+        // A parity or overrun error makes the whole packet unreliable. Drop
         // the bytes buffered so far and the rest of the packet.
         if (item.err) {
             LOG_WRN("Dropping packet with mistransmitted byte 0x%x", item.byte);
